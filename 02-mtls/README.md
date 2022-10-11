@@ -4,45 +4,27 @@ This example deploys a queue manager that requires client TLS authentication.
 
 ## Preparation
 
-Open a terminal and login to the OpenShift cluster where you installed the CP4I MQ Operator.
-
-If not already done, clone this repository and navigate to this directory:
-
-```
-git clone https://github.com/ibm-messaging/cp4i-mq-samples.git
-
-```
-
-```
-cd cp4i-mq-samples/02-mtls
-
-```
-
-### Clean up if not first time
-
-Delete the files and OpenShift resources created by this example:
-
-```
-./cleanup-qm2.sh
-
-```
+Open a terminal and login to the OpenShift cluster where you installed the MQ Operator.
 
 # Configure and deploy the queue manager
 
-You can copy/paste the commands shown here, or run the script [deploy-qm2-qmgr.sh](./deploy-qm2-qmgr.sh).
-
-**Remember you must be logged in to your OpenShift cluster.**
+Deploy the queuemanager that you will be using to test mTLS.
 
 ## Setup TLS for the queue manager
+
+### In this example we will use self signed certificates. This is helpful to get a known good working mTLS setup when your own certificates do not work.
+<br>
 
 ### Create a private key and a self-signed certificate for the queue manager
 
 ```
 openssl req -newkey rsa:2048 -nodes -keyout qm2.key -subj "/CN=qm2" -x509 -days 3650 -out qm2.crt
-
 ```
-This is the same as for one-way TLS. See previous example for details.
+This creates two files:
 
+* Private key: `qm2.key`
+
+* Certificate: `qm2.crt`
 ## Setup TLS for the MQ client application
 
 ### Create a private key and a self-signed certificate for the client application
@@ -98,19 +80,20 @@ Certificate:
 
 Note this is a self-signed certificate (Issuer is the same as Subject).
 
-### Set up the client key database
-
+### Set up the client key database (keystore)
+#### In this example we will use a p12 database instead of a KDB database.
 #### Create the client key database:
 
 ```
-runmqakm -keydb -create -db app1key.kdb -pw password -type cms -stash
+openssl pkcs12 -export -out application.p12 -inkey $app1.key -in app1.crt -passout pass:password
 
 ```
 
-#### Add the queue manager public key to the client key database:
+#### Add the queue manager public key to the client key database (truststore):
 
 ```
-runmqakm -cert -add -db app1key.kdb -label qm2cert -file qm2.crt -format ascii -stashed
+keytool -keystore clientkey.jks -storetype jks -importcert -file qm2.crt -alias server-certificate
+password = password
 
 ```
 
@@ -118,101 +101,59 @@ To check, list the database certificates:
 
 ```
 
-runmqakm -cert -list -db app1key.kdb -stashed
+keytool -list -v -keystore keystore.jks
 
 ```
 
 Expected output:
 
 ```
-Certificates found
-* default, - personal, ! trusted, # secret key
-!	qm2cert
+Enter keystore password:  
+Keystore type: JKS
+Keystore provider: SUN
+
+Your keystore contains 1 entry
+
+Alias name: server-certificate
+Creation date: Oct 11, 2022
+Entry type: trustedCertEntry
+
+Owner: CN=localhost
+Issuer: CN=localhost
+Serial number: eb40d77d9815aa4c
+Valid from: Mon Aug 15 07:18:12 CDT 2022 until: Thu Aug 12 07:18:12 CDT 2032
+Certificate fingerprints:
+	 SHA1: E3:DB:A9:F2:79:28:B6:1B:C8:6A:C7:57:7F:2F:5D:F4:0E:A3:E6:A0
+	 SHA256: D3:C1:58:02:4A:35:62:E1:78:1B:1F:00:8D:2F:F0:DC:B0:66:A1:36:A5:E3:98:CB:FC:C0:B7:51:00:44:73:3C
+Signature algorithm name: SHA256withRSA
+Subject Public Key Algorithm: 2048-bit RSA key
+Version: 1
 
 ```
 
 #### Add the client's certificate and key to the client key database:
 
-First, put the key (`app1.key`) and certificate (`app1.crt`) into a PKCS12 file. PKCS12 is a format suitable for importing into the client key database (`app1key.kdb`):
+First, put the key (`app1.key`) and certificate (`app1.crt`) into a PKCS12 file. PKCS12 is a format suitable for using in your MQ client application.
 
 ```
 openssl pkcs12 -export -out app1.p12 -inkey app1.key -in app1.crt -password pass:password
 
 ```
 
-Next, import the PKCS12 file. The label **must be** `ibmwebspheremq<your userid>`:
-
-```
-label=ibmwebspheremq`id -u -n`
-runmqakm -cert -import -target app1key.kdb -file app1.p12 -target_stashed -pw password -new_label $label
-
-```
-
-List the database certificates:
-
-```
-runmqakm -cert -list -db app1key.kdb -stashed
-
-```
-
-Expected output:
-
-```
-Certificates found
-* default, - personal, ! trusted, # secret key
-!	qm2cert
--	ibmwebspheremqemir
-
-```
-
-Get the certificate details:
-
-```
-runmqakm -cert -details -db app1key.kdb -stashed -label $label
-
-```
-You should see (truncated for readability):
-
-```
-Label : ibmwebspheremqemir
-Key Size : 2048
-Version : X509 V1
-Serial : 00a5f7ac503bb6d22f
-Issuer : CN=app1
-Subject : CN=app1
-Not Before : 26 July 2021 16:29:37 GMT+01:00
-
-Not After : 24 July 2031 16:29:37 GMT+01:00
-
-Public Key
-    30 82 01 22...
-Public Key Type : RSA (1.2.840.113549.1.1.1)
-Fingerprint : SHA1 : 
-    30 F4 BD 1F...
-Fingerprint : MD5 : 
-    6B 84 F1 B1...
-Fingerprint : SHA256 : 
-    66 94 F1 DF...
-Fingerprint : HPKP : 
-    R9zR4u5Q7Cz3we94Vzo5m/bwf3/zS7+Dmbm4NtYu99s=
-Signature Algorithm : SHA256WithRSASignature (1.2.840.113549.1.1.11)
-Value
-    A5 09 B7 1C...
-Trust Status : Enabled
-```
-
+#### The app1.p12 and clientkey.jks can now be used by the MQ client application. It is assumed the the client application is written in Java.
 
 ### Create TLS Secret for the Queue Manager
 
+Our OpenShift project is called ibm-mq-poc.
 ```
-oc create secret tls example-02-qm2-secret -n cp4i --key="qm2.key" --cert="qm2.crt"
+oc create secret tls example-02-qm2-secret -n ibm-mq-poc --key="qm2.key" --cert="qm2.crt"
 
 ```
 
 ### Create TLS Secret with the client's certificate
 
 ```
-oc create secret generic example-02-app1-secret -n cp4i --from-file=app1.crt=app1.crt
+oc create secret generic example-02-app1-secret -n ibm-mq-poc --from-file=app1.crt=app1.crt
 
 ```
 
@@ -233,24 +174,31 @@ data:
     DEFINE QLOCAL('Q1') REPLACE DEFPSIST(YES) 
     DEFINE CHANNEL(QM2CHL) CHLTYPE(SVRCONN) REPLACE TRPTYPE(TCP) SSLCAUTH(REQUIRED) SSLCIPH('ANY_TLS12_OR_HIGHER')
     SET CHLAUTH(QM2CHL) TYPE(BLOCKUSER) USERLIST('nobody') ACTION(ADD)
+  qm2.ini: |
+    SSL:
+    OutboundSNI=HOSTNAME
 EOF
 #
 cat qm2-configmap.yaml
 
 ```
 
-#### Note:
+#### Notes:
+
+The qm2.ini is added to configure the OutboundSNI option. The default value is CHANNEL. But in our case we are setting it to HOSTNAME. We will explain this setting in the next few sections.
 
 The only difference with one-way TLS is `SSLCAUTH(REQUIRED)`. This is what mandates mutual TLS (the client must present its certificate).
 
 #### Create the config map
 
 ```
-oc apply -n cp4i -f qm2-configmap.yaml
+oc apply -n ibm-mq-poc -f qm2-configmap.yaml
 
 ```
 
 ### Create the required route for SNI
+
+#### This step is optional if using OutboundSNI=CHANNEL which is the default. Since we set the OutboundSNI=HOSTNAME in our qm2.ini, there is no longer a need for creating extra routes for each channel.
 
 ```
 cat > qm2chl-route.yaml << EOF
@@ -274,7 +222,7 @@ cat qm2chl-route.yaml
 ```
 
 ```
-oc apply -n cp4i -f qm2chl-route.yaml
+oc apply -n ibm-mq-poc -f qm2chl-route.yaml
 
 ```
 
@@ -307,6 +255,11 @@ spec:
         name: example-02-qm2-configmap
         items:
         - qm2.mqsc
+    ini: 
+    - configMap:
+        name: example-02-qm2-configmap
+        items:
+        - qm2.ini
     storage:
       queueManager:
         type: ephemeral
@@ -351,31 +304,28 @@ The only difference with one-way TLS is the `trust` section in the yaml file:
         items:
           - app1.crt
 ```
-This adds the client certificate (from the secret we created earlier) to the queue manager's key database. It is what allows the queue manager to verify the client.
+This adds the client certificate (from the secret we created earlier) to the queue manager's truststore. It is what allows the queue manager to verify the client.
 
 #### Create the queue manager
 
 ```
-oc apply -n cp4i -f qm2-qmgr.yaml
+oc apply -n ibm-mq-poc -f qm2-qmgr.yaml
 
 ```
 
 # Set up and run the clients
 
-We will put, browse and get messages to test the queue manager we just deployed.
+Now that the queuemanager is running test the put and get messages with your MQ client application. Remember to use the app1.p12 and clientkey.jks as your keystore and truststore respectively.
 
-You can copy/paste the commands shown below to a command line, or use these scripts:
+You also need to set com.ibm.mq.cfg.SSL.outboundSNI system property to HOSTNAME. This allows your MQ client to be in sync with the MQ server configuration. 
 
-* [run-qm2-client-put.sh](./run-qm2-client-put.sh) to put two test messages to the queue `Q1`.
-* [run-qm2-client-browse.sh](./run-qm2-client-browse.sh) to browse the messages (read them but leave them on the queue).
-* [run-qm2-client-get.sh](./run-qm2-client-get.sh) to get messages (read them and remove them from the queue).
 
 ## Test the connection
 
 ### Confirm that the queue manager is running
 
 ```
-oc get qmgr -n cp4i qm2
+oc get qmgr -n ibm-mq-poc qm2
 
 ```
 
@@ -426,68 +376,6 @@ EOF
 cat ccdt.json
 
 ```
-
-### Set environment variables for the client
-
-```
-export MQCCDTURL=ccdt.json
-export MQSSLKEYR=app1key
-# check:
-echo MQCCDTURL=$MQCCDTURL
-ls -l $MQCCDTURL
-echo MQSSLKEYR=$MQSSLKEYR
-ls -l $MQSSLKEYR.*
-
-```
-
-### Put messages to the queue
-
-```
-echo "Test message 1" | amqsputc Q1 QM2
-echo "Test message 2" | amqsputc Q1 QM2
-
-```
-You should see:
-
-```
-Sample AMQSPUT0 start
-target queue is Q1
-Sample AMQSPUT0 end
-Sample AMQSPUT0 start
-target queue is Q1
-Sample AMQSPUT0 end
-```
-### Get messages from the queue
-
-The program gets the messages and waits for more. Ends if no more messages after 15 seconds:
-
-```
-amqsgetc Q1 QM2
-
-```
-
-You should see:
-
-```
-Sample AMQSGET0 start
-message <Test message 1>
-message <Test message 2>
-no more messages
-Sample AMQSGET0 end
-```
-
-## Cleanup
-
-This deletes the queue manager and other objects created on OpenShift, and the files created by this example: 
-
-```
-./cleanup-qm2.sh
-
-```
-
-## Next steps
-
-Next, we'll enable user authentication. See [03-auth](../03-auth).
 
 
 
