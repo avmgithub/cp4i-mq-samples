@@ -342,40 +342,5 @@ Test (optional):
 ping -c 3 $qmhostname
 
 ```
-
-### Create ccdt.json
-
-```
-cat > ccdt.json << EOF
-{
-    "channel":
-    [
-        {
-            "name": "QM2CHL",
-            "clientConnection":
-            {
-                "connection":
-                [
-                    {
-                        "host": "$qmhostname",
-                        "port": 443
-                    }
-                ],
-                "queueManager": "QM2"
-            },
-            "transmissionSecurity":
-            {
-              "cipherSpecification": "ANY_TLS12_OR_HIGHER"
-            },
-            "type": "clientConnection"
-        }
-   ]
-}
-EOF
-#
-cat ccdt.json
-
-```
-
-
-
+### Test with your application
+#### The application should be able to put and get messages
