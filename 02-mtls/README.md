@@ -198,7 +198,7 @@ oc apply -n ibm-mq-poc -f qm2-configmap.yaml
 
 ### Create the required route for SNI
 
-#### This step is optional if using OutboundSNI=CHANNEL which is the default. Since we set the OutboundSNI=HOSTNAME in our qm2.ini, there is no longer a need for creating extra routes for each channel.
+#### This step is only needed if using OutboundSNI=CHANNEL which is the default. Since we set the OutboundSNI=HOSTNAME in our qm2.ini, there is no longer a need for creating extra routes for each channel.
 
 ```
 cat > qm2chl-route.yaml << EOF
